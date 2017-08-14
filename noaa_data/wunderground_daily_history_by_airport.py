@@ -7,6 +7,14 @@ from datetime import timedelta, date
 from multiprocessing.pool import ThreadPool
 
 
+def is_num(val):
+    try:
+        float(val)
+        return True
+    except (ValueError, TypeError):
+        return False
+
+
 def daterange(start_date, end_date):
     dates = []
     for n in range(int((end_date - start_date).days)):
@@ -24,6 +32,7 @@ def get_data(some_date):
     year = some_date.strftime('%Y')
     month = some_date.strftime('%m')
     day = some_date.strftime('%d')
+    print "Parsing {}...".format(date_time)
 
     # Loop over stations
     for station in stations:
@@ -41,7 +50,7 @@ def get_data(some_date):
         soup = BeautifulSoup(result, 'lxml', from_encoding='utf-8')
 
         # Create list for values
-        values = [date_time, station] + [None for x in value_names]
+        values = [None for x in value_names]
 
         # Find relevant tags in history table
         tags = []
@@ -55,6 +64,8 @@ def get_data(some_date):
             if tag.span:
                 try:
                     value = tag(attrs={'class': 'wx-value'})[0].text
+                    if not is_num(value):
+                        continue
                 except IndexError:
                     continue
 
@@ -66,12 +77,14 @@ def get_data(some_date):
                     values[2] = value
                 elif tag.span.text == 'Precipitation':
                     values[3] = value
-                elif tag.span.text == 'Wind Speed':
+                elif tag.span.text == 'Snow':
                     values[4] = value
-                elif tag.span.text == 'Max Wind Speed':
+                elif tag.span.text == 'Wind Speed':
                     values[5] = value
-                elif tag.span.text == 'Max Gust Speed':
+                elif tag.span.text == 'Max Wind Speed':
                     values[6] = value
+                elif tag.span.text == 'Max Gust Speed':
+                    values[7] = value
 
         # Append values to rows
         row_set.append([date_time, station] + values)
@@ -109,7 +122,7 @@ if __name__ == '__main__':
 
     # Define start and end date
     start = date(2012, 1, 1)
-    end = date(2012, 1, 9)  # date.today()
+    end = date(2012, 1, 31)  # date.today()
 
     # Initialize url and stations
     base_url = 'https://www.wunderground.com/history/airport/{0}/{1}/{2}/{3}/DailyHistory.html'
@@ -117,7 +130,7 @@ if __name__ == '__main__':
                 'KIKK', 'KMLI', 'KSQI', 'KFEP', 'KRFD', 'KRPJ', 'KDKB', 'KARR', 'KDPA']
 
     # Define values to pull
-    value_names = ['avg_temp', 'max_temp', 'min_temp', 'prcp', 'avg_wind', 'max_wind', 'max_gust']
+    value_names = ['avg_temp', 'max_temp', 'min_temp', 'prcp', 'snow', 'avg_wind', 'max_wind', 'max_gust']
 
     # Run threads to scrape data
     start_threadpool()
