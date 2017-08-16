@@ -1,13 +1,24 @@
+"""This script pulls historic daily weather data for a user-specified date range and set of wunderground stations."""
+
 import csv
 import bs4
 import time
 import urllib
 from bs4 import BeautifulSoup
 from datetime import timedelta, date
-from multiprocessing.pool import ThreadPool
+from multiprocessing import Pool
 
 
 def is_num(val):
+    """Checks if object is a number.
+
+    Args:
+        val (object): Object to be checked.
+
+    Returns:
+        True if object can be converted to float, False otherwise.
+
+    """
     try:
         float(val)
         return True
@@ -16,6 +27,16 @@ def is_num(val):
 
 
 def daterange(start_date, end_date):
+    """Creates a list of dates within a provided date range.
+
+    Args:
+        start_date (date): Starting date, inclusive.
+        end_date (date): Ending date, non-inclusive.
+
+    Returns:
+        List of dates.
+
+    """
     dates = []
     for n in range(int((end_date - start_date).days)):
         dates.append(start_date + timedelta(n))
@@ -23,7 +44,15 @@ def daterange(start_date, end_date):
 
 
 def get_data(some_date):
+    """Pulls data from wunderground for a given date.
 
+    Args:
+        some_date (date): Date to pull data for.
+
+    Returns:
+        List of rows of weather data.
+
+    """
     # Initialize row set
     row_set = []
 
@@ -93,13 +122,14 @@ def get_data(some_date):
     return row_set
 
 
-def start_threadpool():
+def multiprocess_weather_collection():
+    """Pulls weather data from wunderground and writes to file."""
 
     # Create date range
     date_range = daterange(start, end)
 
     # Get data
-    pool = ThreadPool(4)
+    pool = Pool(60)
     row_sets = pool.map(get_data, date_range)
     pool.close()
     pool.join()
@@ -114,25 +144,25 @@ def start_threadpool():
 
 if __name__ == '__main__':
 
-    # Start timer
-    start_time = time.time()
-
     # Define output file
-    output_csv = 'historic_wunderground_data.csv'
+    output_csv = 'historic_wunderground_data_since_1998.csv'
 
     # Define start and end date
-    start = date(2012, 1, 1)
-    end = date(2012, 1, 31)  # date.today()
+    start = date(1998, 1, 1)
+    end = date.today()
+
+    # Define values to pull
+    value_names = ['avg_temp', 'max_temp', 'min_temp', 'prcp', 'snow', 'avg_wind', 'max_wind', 'max_gust']
 
     # Initialize url and stations
     base_url = 'https://www.wunderground.com/history/airport/{0}/{1}/{2}/{3}/DailyHistory.html'
     stations = ['KMDW', 'KORD', 'KUGN', 'KPWK', 'KVYS', 'KPNT', 'KC09', 'KJOT', 'KLOT',
                 'KIKK', 'KMLI', 'KSQI', 'KFEP', 'KRFD', 'KRPJ', 'KDKB', 'KARR', 'KDPA']
 
-    # Define values to pull
-    value_names = ['avg_temp', 'max_temp', 'min_temp', 'prcp', 'snow', 'avg_wind', 'max_wind', 'max_gust']
+    # Start timer
+    start_time = time.time()
 
     # Run threads to scrape data
-    start_threadpool()
+    multiprocess_weather_collection()
 
     print "Time to complete script: {}".format(str(timedelta(seconds=int(time.time() - start_time))))
