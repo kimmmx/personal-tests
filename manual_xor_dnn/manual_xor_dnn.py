@@ -1,4 +1,6 @@
 """Manually create DNN to learn xor logic."""
+from tqdm import tqdm
+from random import random
 
 
 class DeepNeuralNet(object):
@@ -15,6 +17,8 @@ class DeepNeuralNet(object):
         dphi_dnetj (function): Derivative of activation function with respect to input.
         weights (list): Nested list of weights as weights[net][i][j].
         weight_gradients (list): Nested list of partials of MSE with respect to weights as gradients[net][i][j].
+        biases (list): Nested list of node biases as biases[layer][node].
+        bias_gradients (list): Nested list of bias gradients as gradients[layer][node].
         inputs (list): Nested list of inputs as inputs[layer][node].
         outputs (list): Nested list of outputs as outputs[layer][node].
         output_gradients (list): Nested list of partials of model output with respect to node output
@@ -22,7 +26,7 @@ class DeepNeuralNet(object):
 
     """
 
-    def __init__(self, num_inputs, hidden_shape, activation, learn_rate=1e-4, epochs=int(1e4)):
+    def __init__(self, num_inputs, hidden_shape, activation='ReLU', learn_rate=1e-4, epochs=int(1e4)):
         """ Initializes shape of weights and outputs of DNN.
 
         Args:
@@ -40,6 +44,8 @@ class DeepNeuralNet(object):
         self.dphi_dnetj = None
         self.weights = []
         self.weight_gradients = []
+        self.biases = []
+        self.bias_gradients = []
         self.inputs = []
         self.outputs = []
         self.output_gradients = []
@@ -54,7 +60,7 @@ class DeepNeuralNet(object):
             function_name (str): Name of activation function.
 
         """
-        # Rectified linera unit
+        # Rectified linear unit
         if function_name == 'ReLU':
             def phi(netj):
                 return netj if netj > 0 else 0
@@ -70,40 +76,53 @@ class DeepNeuralNet(object):
         self.dphi_dnetj = dphi_dnetj
 
     def init_weights(self):
-        """Initializes all weights to 1 and all error gradients to None in the format [net][i][j]."""
-        for n in xrange(len(self.node_shape) - 1):
+        """Initializes all weights in the format [layer][i][j].
+
+            Note: 'i' corresponds to the current layer's node, and 'j' to the next layer's node.
+
+        """
+        for layer in xrange(len(self.node_shape) - 1):
             net_weight = []
             net_gradient = []
-            for i in xrange(self.node_shape[n]):
-                net_weight.append([1 for _ in xrange(self.node_shape[n + 1])])
-                net_gradient.append([None for _ in xrange(self.node_shape[n + 1])])
+            for i in xrange(self.node_shape[layer]):
+                net_weight.append([1 for _ in xrange(self.node_shape[layer + 1])])
+                net_gradient.append([None for _ in xrange(self.node_shape[layer + 1])])
             self.weights.append(net_weight)
             self.weight_gradients.append(net_gradient)
 
     def init_nodes(self):
-        """Initializes all inputs, outputs, and output gradients to None in the format [layer][node]."""
+        """Initializes all inputs, outputs, and biases in the format [layer][node]."""
         for nodes_per_layer in self.node_shape:
             self.inputs.append([None for _ in xrange(nodes_per_layer)])
             self.outputs.append([None for _ in xrange(nodes_per_layer)])
             self.output_gradients.append([None for _ in xrange(nodes_per_layer)])
+            self.biases.append([2 * random() - 1 for _ in xrange(nodes_per_layer)])
+            self.bias_gradients.append([None for _ in xrange(nodes_per_layer)])
 
-    def calculate_inputs_outputs(self, train_sample):
-        """Calculates inptus and outputs based on training sample and current weights.
+    def calculate_inputs_outputs(self, sample, predict=False):
+        """Calculates inputs and outputs based on training sample and current weights.
 
         Args:
-            train_sample (list): List of inputs and target output.
+            sample (list): List of inputs and target output.
+            predict (bool): Indicates whether data includes target output or not.
 
         """
         for layer in xrange(len(self.node_shape)):
             if layer == 0:
-                self.outputs[layer] = train_sample[:-1]
+                if not predict:
+                    self.outputs[layer] = sample[:-1]
+                else:
+                    self.outputs[layer] = sample
                 continue
             for j in xrange(self.node_shape[layer]):
-                netj = 0
+                netj = self.biases[layer][j]
                 for i in xrange(self.node_shape[layer-1]):
                     netj += self.outputs[layer-1][i] * self.weights[layer-1][i][j]
                 self.inputs[layer][j] = netj
-                self.outputs[layer][j] = self.phi(netj)
+                if layer == len(self.node_shape) - 1:
+                    self.outputs[layer][j] = netj
+                else:
+                    self.outputs[layer][j] = self.phi(netj)
 
     def calculate_output_gradients(self):
         """Calculates output gradients based on current weights."""
@@ -121,20 +140,8 @@ class DeepNeuralNet(object):
                     gradient += dnetj_doi * doj_dnetj * dy_doj
                 self.output_gradients[layer][i] = gradient
 
-    def get_mse(self, target):
-        """Calculates error based on target and current output.
-
-        Note:
-            Uses the formula E = (0.5)(t - y)^2, or half the actual MSE, for a convenient derivative.
-
-        Args:
-            target (float): Target output.
-
-        """
-        return 0.5 * (target - self.outputs[-1][0])**2
-
-    def calculate_error_gradients(self, target):
-        """Calculates error gradients based on MSE.
+    def calculate_weight_gradients(self, target):
+        """Calculates error gradients based on error = (0.5)(t - y)^2.
 
             target (float): Desired output of training sample.
         """
@@ -146,12 +153,26 @@ class DeepNeuralNet(object):
                     doj_dwij = self.outputs[net][i]
                     self.weight_gradients[net][i][j] = de_dy * dy_doj * doj_dwij
 
+    def calculate_bias_gradients(self, target):
+        de_dy = (self.outputs[-1][0] - target)
+        for layer in xrange(len(self.biases)):
+            for node in xrange(len(self.biases[layer])):
+                dy_doj = self.output_gradients[layer][node]
+                doj_dbj = self.dphi_dnetj(self.inputs[layer][node])
+                self.bias_gradients[layer][node] = de_dy * dy_doj * doj_dbj
+
     def update_weights(self):
-        """Updates weights based on current error gradients."""
+        """Updates weights based on current weight gradients."""
         for net in xrange(len(self.weights)):
             for i in xrange(len(self.weights[net])):
                 for j in xrange(len(self.weights[net][i])):
                     self.weights[net][i][j] -= self.learn_rate * self.weight_gradients[net][i][j]
+
+    def update_biases(self):
+        """Updates biases based on current bias gradients"""
+        for layer in xrange(len(self.biases)):
+            for node in xrange(len(self.biases[layer])):
+                self.biases[layer][node] -= self.learn_rate * self.bias_gradients[layer][node]
 
     def train_sample(self, train_sample):
         """Trains model with training sample.
@@ -163,8 +184,10 @@ class DeepNeuralNet(object):
         target = train_sample[-1]
         self.calculate_inputs_outputs(train_sample)
         self.calculate_output_gradients()
-        self.calculate_error_gradients(target)
+        self.calculate_weight_gradients(target)
+        self.calculate_bias_gradients(target)
         self.update_weights()
+        self.update_biases()
 
     def train(self, train_set):
         """Trains model with training set.
@@ -173,7 +196,7 @@ class DeepNeuralNet(object):
             train_set (list): List of lists of training data.
 
         """
-        for _ in xrange(self.epochs):
+        for _ in tqdm(xrange(self.epochs)):
             for train_sample in train_set:
                 self.train_sample(train_sample)
 
@@ -185,14 +208,15 @@ class DeepNeuralNet(object):
 
         """
         for test_sample in test_set:
-            self.calculate_inputs_outputs(test_sample)
+            self.calculate_inputs_outputs(test_sample, predict=True)
             print test_sample, self.outputs[-1][0]
 
 
 def main():
 
-    # Define training set with xor logic
+    # Define training and test set with xor logic
     train_set = [[0, 0, 0], [0, 1, 1], [1, 0, 1], [1, 1, 0]]
+    test_set = [sample[:2] for sample in train_set]
 
     # Define shape of network
     num_inputs = 2
@@ -202,11 +226,14 @@ def main():
     model = DeepNeuralNet(
         num_inputs=num_inputs,
         hidden_shape=hidden_shape,
-        activation='ReLU'
+        learn_rate=1e-3,
+        epochs=50000
     )
 
     model.train(train_set)
-    model.predict(train_set)
+    model.predict(test_set)
+    print model.weights
+    print model.biases
 
 
 if __name__ == '__main__':
